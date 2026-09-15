@@ -298,8 +298,8 @@ class RobotArmController(ctk.CTk):
                         timeout=0.1, 
                         write_timeout=0.2
                     )
-                    self.ser.dtr = False
-                    self.ser.rts = False
+                    self.ser.dtr = True
+                    self.ser.rts = True
 
                 time.sleep(1.0)
                 self._send_speed_async(self.current_speed)
@@ -333,13 +333,10 @@ class RobotArmController(ctk.CTk):
         if not self.ser or not self.ser.is_open:
             return
 
-        now = time.time()
+        # Si ya enviamos exactamente este ángulo por puerto serie, ignorar duplicado
         if self.last_sent_angles.get(servo_id) == angle:
             return
-        if now - self.last_send_time.get(servo_id, 0) < 0.035:
-            return
 
-        self.last_send_time[servo_id] = now
         self.last_sent_angles[servo_id] = angle
 
         def _worker():
@@ -348,8 +345,9 @@ class RobotArmController(ctk.CTk):
                     if self.ser and self.ser.is_open:
                         cmd = f"{servo_id}:{angle}\n"
                         self.ser.write(cmd.encode("utf-8"))
-            except Exception:
-                pass
+                        self.ser.flush()
+            except Exception as e:
+                print(f"Error enviando comando serie: {e}")
 
         Thread(target=_worker, daemon=True).start()
 
@@ -363,8 +361,9 @@ class RobotArmController(ctk.CTk):
                     if self.ser and self.ser.is_open:
                         cmd = f"S:{speed}\n"
                         self.ser.write(cmd.encode("utf-8"))
-            except Exception:
-                pass
+                        self.ser.flush()
+            except Exception as e:
+                print(f"Error enviando velocidad serie: {e}")
 
         Thread(target=_worker, daemon=True).start()
 
@@ -394,21 +393,58 @@ class RobotArmController(ctk.CTk):
         self.is_playing = True
 
         def loop_play():
-            for idx, angles in enumerate(self.recorded_sequence):
+            for idx, target_angles in enumerate(self.recorded_sequence):
                 if not self.is_playing:
                     break
                 
-                self.lbl_status.configure(text=f"Paso {idx+1}/{len(self.recorded_sequence)}: {angles}", text_color="#00E5FF")
-                for s_id, angle in enumerate(angles):
-                    self.sliders[s_id].set(angle)
-                    self.angle_labels[s_id].configure(text=f"{angle}°")
-                    self._send_cmd_async(s_id, angle)
+                self.lbl_status.configure(
+                    text=f"Reproduciendo Paso {idx+1}/{len(self.recorded_sequence)}: {target_angles}", 
+                    text_color="#00E5FF"
+                )
                 
-                pause_time = max(0.2, 1.6 - (self.current_speed * 0.013))
-                time.sleep(pause_time)
+                start_angles = [int(slider.get()) for slider in self.sliders]
+                max_diff = max(abs(target_angles[i] - start_angles[i]) for i in range(4))
+
+                if max_diff == 0:
+                    time.sleep(0.15)
+                    continue
+
+                # Sincronización exacta de velocidad física de servomotores (1.5ms a 35ms por grado)
+                if self.current_speed >= 100:
+                    ms_per_degree = 1.5
+                else:
+                    ms_per_degree = 35.0 - (self.current_speed / 100.0) * 33.0
+
+                total_duration = (max_diff * ms_per_degree) / 1000.0
+                start_time = time.perf_counter()
+
+                # Bucle de alta precisión basado en reloj de hardware para deslizado ultrasuave (60-120 FPS)
+                while True:
+                    if not self.is_playing:
+                        break
+                    
+                    elapsed = time.perf_counter() - start_time
+                    progress = min(1.0, elapsed / total_duration) if total_duration > 0 else 1.0
+
+                    for i in range(4):
+                        diff = target_angles[i] - start_angles[i]
+                        curr_float = start_angles[i] + (diff * progress)
+                        self.sliders[i].set(curr_float) # Desplazamiento continuo flotante ultrasuave
+
+                        curr_int = int(round(curr_float))
+                        if self.last_sent_angles.get(i) != curr_int:
+                            self.angle_labels[i].configure(text=f"{curr_int}°")
+                            self._send_cmd_async(i, curr_int)
+
+                    if progress >= 1.0:
+                        break
+
+                    time.sleep(0.002)
+
+                time.sleep(0.1)
 
             self.is_playing = False
-            self.lbl_status.configure(text="Reproducción completada.", text_color="#2b8a3e")
+            self.lbl_status.configure(text="Reproducción completada exitosamente.", text_color="#2b8a3e")
 
         Thread(target=loop_play, daemon=True).start()
 
@@ -417,10 +453,47 @@ class RobotArmController(ctk.CTk):
         self.lbl_status.configure(text="Secuencia detenida.", text_color="#d9534f")
 
     def reset_all_home(self):
-        for i, slider in enumerate(self.sliders):
-            slider.set(90)
-            self.on_slider_change(i, 90)
-        self.lbl_status.configure(text="Todos los servomotores reiniciados a 90°", text_color="#00E5FF")
+        if self.is_playing:
+            return
+
+        def animate_home():
+            self.is_playing = True
+            start_angles = [float(slider.get()) for slider in self.sliders]
+            target_angles = [90, 90, 90, 90]
+            max_diff = max(abs(90 - start_angles[i]) for i in range(4))
+
+            if max_diff > 0:
+                if self.current_speed >= 100:
+                    ms_per_degree = 1.5
+                else:
+                    ms_per_degree = 35.0 - (self.current_speed / 100.0) * 33.0
+
+                total_duration = (max_diff * ms_per_degree) / 1000.0
+                start_time = time.perf_counter()
+
+                while True:
+                    elapsed = time.perf_counter() - start_time
+                    progress = min(1.0, elapsed / total_duration) if total_duration > 0 else 1.0
+
+                    for i in range(4):
+                        diff = target_angles[i] - start_angles[i]
+                        curr_float = start_angles[i] + (diff * progress)
+                        self.sliders[i].set(curr_float)
+
+                        curr_int = int(round(curr_float))
+                        if self.last_sent_angles.get(i) != curr_int:
+                            self.angle_labels[i].configure(text=f"{curr_int}°")
+                            self._send_cmd_async(i, curr_int)
+
+                    if progress >= 1.0:
+                        break
+
+                    time.sleep(0.002)
+
+            self.is_playing = False
+            self.lbl_status.configure(text="Todos los servomotores reiniciados a 90°", text_color="#00E5FF")
+
+        Thread(target=animate_home, daemon=True).start()
 
     def export_sequence(self):
         if not self.recorded_sequence:
