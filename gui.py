@@ -5,7 +5,7 @@ import serial
 import serial.tools.list_ports
 import time
 import json
-from threading import Thread
+from threading import Thread, Lock
 
 ctk.set_appearance_mode("Light")
 ctk.set_default_color_theme("blue")
@@ -20,8 +20,12 @@ class RobotArmController(ctk.CTk):
         self.configure(fg_color="#0F0F0F") # Marco exterior oscuro
 
         self.ser = None
+        self.ser_lock = Lock()
         self.recorded_sequence = []
         self.is_playing = False
+
+        self.last_sent_angles = {}
+        self.last_send_time = {}
 
         self.servos = [
             {"id": 0, "name": "SERVO 1", "pin": "GPIO 2"},
@@ -146,11 +150,10 @@ class RobotArmController(ctk.CTk):
             )
             btn.place(x=770, y=y_pos)
 
-        # --- 4 SLIDERS DE CONTROL DE SERVOS (SERVO 1, SERVO 2, SERVO 3, SERVO 4) ---
+        # --- 4 SLIDERS DE CONTROL DE SERVOS ---
         slider_y_positions = [155, 215, 275, 335]
 
         for i, (servo, y_pos) in enumerate(zip(self.servos, slider_y_positions)):
-            # Etiqueta Nombre Servo
             lbl_name = ctk.CTkLabel(
                 self.main_panel,
                 text=f"{servo['name']} [{servo['pin']}]",
@@ -159,7 +162,6 @@ class RobotArmController(ctk.CTk):
             )
             lbl_name.place(x=225, y=y_pos + 6)
 
-            # Frame Slider Cápsula
             slider_frame = ctk.CTkFrame(self.main_panel, fg_color="#202020", corner_radius=18, width=320, height=36)
             slider_frame.place(x=350, y=y_pos)
             slider_frame.pack_propagate(False)
@@ -181,7 +183,6 @@ class RobotArmController(ctk.CTk):
             slider.place(relx=0.5, rely=0.5, anchor="center")
             self.sliders.append(slider)
 
-            # Badge de Ángulo (090)
             val_frame = ctk.CTkFrame(self.main_panel, fg_color="#202020", corner_radius=18, width=54, height=36)
             val_frame.place(x=685, y=y_pos)
             val_frame.pack_propagate(False)
@@ -250,11 +251,21 @@ class RobotArmController(ctk.CTk):
                 return
 
             try:
-                if self.ser and self.ser.is_open:
-                    self.ser.close()
+                with self.ser_lock:
+                    if self.ser and self.ser.is_open:
+                        self.ser.close()
 
-                self.ser = serial.Serial(selected, 115200, timeout=0.1)
-                time.sleep(1.5)
+                    # Abrir con timeouts estrictos para prevenir bloqueos de la GUI en Windows
+                    self.ser = serial.Serial(
+                        selected, 
+                        115200, 
+                        timeout=0.1, 
+                        write_timeout=0.2
+                    )
+                    self.ser.dtr = False
+                    self.ser.rts = False
+
+                time.sleep(1.0)
                 self.btn_puerto.configure(fg_color="#2b8a3e")
                 self.lbl_status.configure(text=f"Estado: Conectado en {selected} @ 115200 baudios", text_color="#2b8a3e")
                 port_win.destroy()
@@ -262,11 +273,15 @@ class RobotArmController(ctk.CTk):
                 messagebox.showerror("Error", f"No se pudo conectar a {selected}:\n{e}")
 
         def disconnect_action():
-            if self.ser and self.ser.is_open:
-                self.ser.close()
-                self.ser = None
-                self.btn_puerto.configure(fg_color="#202020")
-                self.lbl_status.configure(text="Estado: Desconectado", text_color="#00E5FF")
+            with self.ser_lock:
+                if self.ser and self.ser.is_open:
+                    try:
+                        self.ser.close()
+                    except Exception:
+                        pass
+                    self.ser = None
+            self.btn_puerto.configure(fg_color="#202020")
+            self.lbl_status.configure(text="Estado: Desconectado", text_color="#00E5FF")
             port_win.destroy()
 
         ctk.CTkButton(btn_frame, text="Conectar", fg_color="#2b8a3e", width=95, command=connect_action).pack(side="left", padx=5)
@@ -276,16 +291,37 @@ class RobotArmController(ctk.CTk):
         ports = [port.device for port in serial.tools.list_ports.comports()]
         return ports if ports else ["No detectado"]
 
+    def _send_cmd_async(self, servo_id, angle):
+        """ Envía el comando serial en un hilo secundario con límite de frecuencia (debounce) """
+        if not self.ser or not self.ser.is_open:
+            return
+
+        now = time.time()
+        if self.last_sent_angles.get(servo_id) == angle:
+            return
+        if now - self.last_send_time.get(servo_id, 0) < 0.035: # Máximo ~28 msgs/seg por servo
+            return
+
+        self.last_send_time[servo_id] = now
+        self.last_sent_angles[servo_id] = angle
+
+        def _worker():
+            try:
+                with self.ser_lock:
+                    if self.ser and self.ser.is_open:
+                        cmd = f"{servo_id}:{angle}\n"
+                        self.ser.write(cmd.encode("utf-8"))
+            except Exception:
+                pass # Prevenir que cualquier falla en la conexión mate la app
+
+        Thread(target=_worker, daemon=True).start()
+
     def on_slider_change(self, servo_id, value):
         angle = int(value)
+        # Actualización instantánea de la UI
         self.angle_labels[servo_id].configure(text=f"{angle:03d}")
-
-        if self.ser and self.ser.is_open:
-            cmd = f"{servo_id}:{angle}\n"
-            try:
-                self.ser.write(cmd.encode("utf-8"))
-            except Exception:
-                self.lbl_status.configure(text="Error de comunicación serial", text_color="#d9534f")
+        # Envío asíncrono no bloqueante
+        self._send_cmd_async(servo_id, angle)
 
     def save_current_pose(self):
         current_angles = [int(slider.get()) for slider in self.sliders]
@@ -310,7 +346,8 @@ class RobotArmController(ctk.CTk):
                 self.lbl_status.configure(text=f"Paso {idx+1}/{len(self.recorded_sequence)}: {angles}", text_color="#00E5FF")
                 for s_id, angle in enumerate(angles):
                     self.sliders[s_id].set(angle)
-                    self.on_slider_change(s_id, angle)
+                    self.angle_labels[s_id].configure(text=f"{angle:03d}")
+                    self._send_cmd_async(s_id, angle)
                 time.sleep(0.8)
 
             self.is_playing = False
