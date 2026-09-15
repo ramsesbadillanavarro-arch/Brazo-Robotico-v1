@@ -4,23 +4,6 @@ Sistema de control para brazo robotico de 4 grados de libertad (4 servomotores) 
 
 ---
 
-## Estructura del Proyecto
-
-```text
-Brazo Robotico v1/
-├── Codigo Esp32 y Interfaz/
-│   └── Interfaz de control.py # Interfaz grafica de usuario
-├── firmware/
-│   └── esp32_c3_arm/
-│       └── esp32_c3_arm.ino    # Firmware Arduino C++
-├── assets/                     # Imagenes de fondo y recursos
-├── requirements.txt            # Dependencias de Python
-├── .gitignore                  # Exclusion de temporales y pycache
-└── README.md                   # Documentación del proyecto
-```
-
----
-
 ## Conexiones de Hardware
 
 > **Alimentacion:** Usar una fuente de alimentacion externa de 5V (2A - 3A) para los servomotores. Unir la masa (GND) de la fuente externa con el pin GND del ESP32-C3 SuperMini.
