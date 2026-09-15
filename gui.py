@@ -13,38 +13,46 @@ class ModernServoController(ctk.CTk):
         super().__init__()
 
         # Ventana Principal
-        self.title("⚡ Control de Servomotor ESP32-C3")
-        self.geometry("550x580")
+        self.title("⚡ Control de Brazo Robótico ESP32-C3 SuperMini")
+        self.geometry("580x750")
         self.resizable(False, False)
 
         self.ser = None
 
+        # Def de los 4 canales de servomotores
+        self.servo_config = [
+            {"name": "SERVO 1 - BASE", "gpio": "GPIO 2", "default": 90},
+            {"name": "SERVO 2 - HOMBRO", "gpio": "GPIO 3", "default": 90},
+            {"name": "SERVO 3 - CODO", "gpio": "GPIO 4", "default": 90},
+            {"name": "SERVO 4 - PINZA", "gpio": "GPIO 5", "default": 90},
+        ]
+
         # --- TÍTULO Y CABECERA ---
         self.header_frame = ctk.CTkFrame(self, corner_radius=15, fg_color="#1A1C23")
-        self.header_frame.pack(padx=20, pady=(20, 10), fill="x")
+        self.header_frame.pack(padx=20, pady=(15, 10), fill="x")
 
         self.lbl_title = ctk.CTkLabel(
             self.header_frame, 
-            text="ESP32-C3 SERVO CONTROL", 
-            font=ctk.CTkFont(size=20, weight="bold"),
+            text="ESP32-C3 ROBOTIC ARM CONTROL", 
+            font=ctk.CTkFont(size=18, weight="bold"),
             text_color="#00E5FF"
         )
-        self.lbl_title.pack(padx=20, pady=(15, 2))
+        self.lbl_title.pack(padx=20, pady=(12, 2))
 
         self.lbl_subtitle = ctk.CTkLabel(
             self.header_frame, 
-            text="Interfaz de Control Serial USB / UART", 
+            text="Interfaz de Control Serial USB / UART (4 Servos)", 
             font=ctk.CTkFont(size=12),
             text_color="#8F96A0"
         )
-        self.lbl_subtitle.pack(padx=20, pady=(0, 15))
+        self.lbl_subtitle.pack(padx=20, pady=(0, 12))
 
         # --- PANEL DE CONEXIÓN USB ---
         self.conn_frame = ctk.CTkFrame(self, corner_radius=15)
-        self.conn_frame.pack(padx=20, pady=10, fill="x")
+        self.conn_frame.pack(padx=20, pady=5, fill="x")
 
         self.lbl_port = ctk.CTkLabel(self.conn_frame, text="Puerto USB:", font=ctk.CTkFont(size=13, weight="bold"))
-        self.lbl_port.pack(side="left", padx=(20, 10), pady=15)
+        self.lbl_port.pack(side="left", padx=(20, 10), pady=12)
 
         self.combo_ports = ctk.CTkOptionMenu(
             self.conn_frame, 
@@ -53,7 +61,7 @@ class ModernServoController(ctk.CTk):
             dynamic_resizing=False,
             button_color="#2B2D42"
         )
-        self.combo_ports.pack(side="left", padx=5, pady=15)
+        self.combo_ports.pack(side="left", padx=5, pady=12)
 
         self.btn_refresh = ctk.CTkButton(
             self.conn_frame, 
@@ -63,7 +71,7 @@ class ModernServoController(ctk.CTk):
             fg_color="#2B2D42",
             hover_color="#3D405B"
         )
-        self.btn_refresh.pack(side="left", padx=5, pady=15)
+        self.btn_refresh.pack(side="left", padx=5, pady=12)
 
         self.btn_connect = ctk.CTkButton(
             self.conn_frame, 
@@ -74,18 +82,33 @@ class ModernServoController(ctk.CTk):
             hover_color="#0096C7",
             width=110
         )
-        self.btn_connect.pack(side="right", padx=20, pady=15)
+        self.btn_connect.pack(side="right", padx=20, pady=12)
+
+        # --- BOTÓN DE ACCIÓN RÁPIDA (HOME) ---
+        self.action_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.action_frame.pack(padx=20, pady=5, fill="x")
+
+        self.btn_home = ctk.CTkButton(
+            self.action_frame,
+            text="🏠 Posición Inicial / Home (90°)",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            command=self.reset_all_to_home,
+            fg_color="#7209B7",
+            hover_color="#560BAD",
+            height=35
+        )
+        self.btn_home.pack(fill="x")
 
         # --- TARJETAS DE CONTROL DE SERVOS ---
-        self.servos_frame = ctk.CTkFrame(self, fg_color="transparent")
-        self.servos_frame.pack(padx=20, pady=10, fill="both", expand=True)
+        self.servos_frame = ctk.CTkScrollableFrame(self, fg_color="transparent")
+        self.servos_frame.pack(padx=20, pady=5, fill="both", expand=True)
 
         self.sliders = []
         self.labels_val = []
 
-        # Crear 2 canales de servos estilizados
-        self.create_servo_card(id_servo=0, gpio_pin="GPIO 2")
-        self.create_servo_card(id_servo=1, gpio_pin="GPIO 3")
+        # Crear tarjetas para los 4 servos
+        for i, cfg in enumerate(self.servo_config):
+            self.create_servo_card(id_servo=i, title_name=cfg["name"], gpio_pin=cfg["gpio"], default_val=cfg["default"])
 
         # --- BARRA DE ESTADO INFERIOR ---
         self.status_frame = ctk.CTkFrame(self, height=35, corner_radius=0, fg_color="#111217")
@@ -106,21 +129,21 @@ class ModernServoController(ctk.CTk):
     def refresh_ports(self):
         ports = self.get_ports()
         self.combo_ports.configure(values=ports)
-        if ports:
+        if ports and ports[0] != "No detectado":
             self.combo_ports.set(ports[0])
 
-    def create_servo_card(self, id_servo, gpio_pin):
+    def create_servo_card(self, id_servo, title_name, gpio_pin, default_val=90):
         card = ctk.CTkFrame(self.servos_frame, corner_radius=15, fg_color="#1E2029")
-        card.pack(fill="x", pady=8, ipady=5)
+        card.pack(fill="x", pady=6, ipady=4)
 
         # Encabezado de la tarjeta
         header = ctk.CTkFrame(card, fg_color="transparent")
-        header.pack(fill="x", padx=15, pady=(12, 5))
+        header.pack(fill="x", padx=15, pady=(10, 2))
 
         title = ctk.CTkLabel(
             header, 
-            text=f"SERVO {id_servo + 1}", 
-            font=ctk.CTkFont(size=14, weight="bold"),
+            text=title_name, 
+            font=ctk.CTkFont(size=13, weight="bold"),
             text_color="#F8F9FA"
         )
         title.pack(side="left")
@@ -135,8 +158,8 @@ class ModernServoController(ctk.CTk):
 
         lbl_val = ctk.CTkLabel(
             header, 
-            text="90°", 
-            font=ctk.CTkFont(size=18, weight="bold"),
+            text=f"{default_val}°", 
+            font=ctk.CTkFont(size=16, weight="bold"),
             text_color="#00E5FF"
         )
         lbl_val.pack(side="right")
@@ -153,19 +176,21 @@ class ModernServoController(ctk.CTk):
             progress_color="#0077B6",
             command=lambda val, s_id=id_servo: self.on_slider_move(s_id, val)
         )
-        slider.set(90)
-        slider.pack(fill="x", padx=15, pady=(5, 12))
+        slider.set(default_val)
+        slider.pack(fill="x", padx=15, pady=(4, 10))
         self.sliders.append(slider)
 
     def toggle_connection(self):
         if self.ser and self.ser.is_open:
             self.ser.close()
+            self.ser = None
             self.btn_connect.configure(text="Conectar", fg_color="#00B4D8", hover_color="#0096C7")
             self.lbl_status.configure(text="🔴 Estado: Desconectado", text_color="#E63946")
             return
 
         selected_port = self.combo_ports.get()
         if selected_port == "No detectado":
+            self.lbl_status.configure(text="⚠️ Error: No hay puertos USB detectados", text_color="#FFB703")
             return
 
         try:
@@ -185,7 +210,15 @@ class ModernServoController(ctk.CTk):
         # Envío del comando serial
         if self.ser and self.ser.is_open:
             command = f"{servo_id}:{angle}\n"
-            self.ser.write(command.encode('utf-8'))
+            try:
+                self.ser.write(command.encode('utf-8'))
+            except Exception as e:
+                self.lbl_status.configure(text=f"⚠️ Error al enviar comando: {e}", text_color="#FFB703")
+
+    def reset_all_to_home(self):
+        for i, slider in enumerate(self.sliders):
+            slider.set(90)
+            self.on_slider_move(i, 90)
 
 if __name__ == "__main__":
     app = ModernServoController()
