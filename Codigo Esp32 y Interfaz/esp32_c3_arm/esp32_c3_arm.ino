@@ -1,4 +1,5 @@
 /*
+ * Recordar poner CDC on Boot enabled
  * Firmware Control de Brazo Robótico (4 Servos) - ESP32-C3 SuperMini
  * Colegio Científico Los Santos
  * 
