@@ -12,21 +12,37 @@ from threading import Thread, Lock
 ctk.set_appearance_mode("Light")
 ctk.set_default_color_theme("blue")
 
+def get_asset_path(filename):
+    """ Busca un archivo de imagen en múltiples ubicaciones relativas posibles """
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    cwd = os.getcwd()
+    candidates = [
+        os.path.join(base_dir, "assets", filename),
+        os.path.join(base_dir, "..", "assets", filename),
+        os.path.join(cwd, "assets", filename),
+        os.path.join(cwd, filename),
+    ]
+    for path in candidates:
+        if os.path.exists(path):
+            return path
+    return None
+
 class RobotArmController(ctk.CTk):
     def __init__(self):
         super().__init__()
 
         self.title("Control - ESP32-C3")
-        # Resolución 1280x720 (720p HD)
+        # Resolución 1280x720 HD
         self.geometry("1280x720")
         self.resizable(False, False)
-        self.configure(fg_color="#0F0F0F") # Marco exterior oscuro
+        self.configure(fg_color="#0A0A0A") # Marco exterior negro profundo
 
         self.ser = None
         self.ser_lock = Lock()
         self.recorded_sequence = []
         self.is_playing = False
 
+        self.current_speed = 75
         self.last_sent_angles = {}
         self.last_send_time = {}
 
@@ -43,19 +59,22 @@ class RobotArmController(ctk.CTk):
         self._build_ui()
 
     def _build_ui(self):
-        # Panel Principal
-        self.main_panel = ctk.CTkFrame(self, fg_color="#FFFFFF", corner_radius=22)
-        self.main_panel.pack(fill="both", expand=True, padx=14, pady=14)
+        # Panel Principal Blanco con Marco Oscuro Exterior Elegante y Esquinas Redondeadas
+        self.main_panel = ctk.CTkFrame(
+            self, 
+            fg_color="#FFFFFF", 
+            corner_radius=30
+        )
+        self.main_panel.pack(fill="both", expand=True, padx=12, pady=12)
 
         # --- IMAGEN DE FONDO (assets/Fondo.png) ---
-        bg_path = os.path.join(os.path.dirname(__file__), "assets", "Fondo.png")
-        if not os.path.exists(bg_path):
-            bg_path = os.path.join(os.path.dirname(__file__), "assets", "fondo.png")
+        bg_path = get_asset_path("Fondo.png") or get_asset_path("fondo.png")
 
-        if os.path.exists(bg_path):
+        if bg_path:
             pil_bg = Image.open(bg_path)
-            self.bg_ctk_img = ctk.CTkImage(light_image=pil_bg, dark_image=pil_bg, size=(1252, 692))
-            self.bg_label = ctk.CTkLabel(self.main_panel, image=self.bg_ctk_img, text="")
+            # Tamaño interior exacto para 1280x720 con padding de 12px (1256x696)
+            self.bg_ctk_img = ctk.CTkImage(light_image=pil_bg, dark_image=pil_bg, size=(1256, 696))
+            self.bg_label = ctk.CTkLabel(self.main_panel, image=self.bg_ctk_img, text="", corner_radius=26)
             self.bg_label.place(x=0, y=0)
 
         # --- CABECERA SUPERIOR ---
@@ -87,7 +106,7 @@ class RobotArmController(ctk.CTk):
             height=38,
             command=self.iconify
         )
-        self.btn_min.place(x=1010, y=25)
+        self.btn_min.place(x=990, y=25)
 
         self.btn_close = ctk.CTkButton(
             self.main_panel,
@@ -101,13 +120,13 @@ class RobotArmController(ctk.CTk):
             height=38,
             command=self.destroy
         )
-        self.btn_close.place(x=1125, y=25)
+        self.btn_close.place(x=1105, y=25)
 
         # --- BOTONES DE ACCIÓN IZQUIERDOS (GUARDAR, REPRODUCIR, DETENER) ---
         left_btns = [
-            ("GUARDAR", self.save_current_pose, 230),
-            ("REPRODUCIR", self.play_sequence, 320),
-            ("DETENER", self.stop_sequence, 410),
+            ("GUARDAR", self.save_current_pose, 200),
+            ("REPRODUCIR", self.play_sequence, 285),
+            ("DETENER", self.stop_sequence, 370),
         ]
 
         for text, cmd, y_pos in left_btns:
@@ -127,9 +146,9 @@ class RobotArmController(ctk.CTk):
 
         # --- BOTONES DE ACCIÓN DERECHOS (EXPORTAR, IMPORTAR, REINICIAR) ---
         right_btns = [
-            ("EXPORTAR", self.export_sequence, 230),
-            ("IMPORTAR", self.import_sequence, 320),
-            ("REINICIAR", self.reset_all_home, 410),
+            ("EXPORTAR", self.export_sequence, 200),
+            ("IMPORTAR", self.import_sequence, 285),
+            ("REINICIAR", self.reset_all_home, 370),
         ]
 
         for text, cmd, y_pos in right_btns:
@@ -145,14 +164,14 @@ class RobotArmController(ctk.CTk):
                 height=48,
                 command=cmd
             )
-            btn.place(x=1050, y=y_pos)
+            btn.place(x=1040, y=y_pos)
 
-        # --- 4 SLIDERS DE CONTROL ---
-        slider_y_positions = [230, 310, 390, 470]
+        # --- 4 SLIDERS DE CONTROL DE SERVOS ---
+        slider_y_positions = [200, 270, 340, 410]
 
         for i, (servo, y_pos) in enumerate(zip(self.servos, slider_y_positions)):
             slider_frame = ctk.CTkFrame(self.main_panel, fg_color="#202020", corner_radius=22, width=400, height=44)
-            slider_frame.place(x=545, y=y_pos)
+            slider_frame.place(x=535, y=y_pos)
             slider_frame.pack_propagate(False)
 
             slider = ctk.CTkSlider(
@@ -174,21 +193,57 @@ class RobotArmController(ctk.CTk):
             self.sliders.append(slider)
 
             val_frame = ctk.CTkFrame(self.main_panel, fg_color="#202020", corner_radius=22, width=65, height=44)
-            val_frame.place(x=955, y=y_pos)
+            val_frame.place(x=945, y=y_pos)
             val_frame.pack_propagate(False)
 
             val_lbl = ctk.CTkLabel(
                 val_frame,
-                text="090",
+                text="90°",
                 font=ctk.CTkFont(family="Consolas", size=15, weight="bold"),
                 text_color="#FFFFFF"
             )
             val_lbl.place(relx=0.5, rely=0.5, anchor="center")
             self.angle_labels.append(val_lbl)
 
+        # --- SLIDER DE VELOCIDAD (Sin texto 'VELOCIDAD') ---
+        speed_y_pos = 480
+
+        speed_frame = ctk.CTkFrame(self.main_panel, fg_color="#202020", corner_radius=22, width=400, height=44)
+        speed_frame.place(x=535, y=speed_y_pos)
+        speed_frame.pack_propagate(False)
+
+        self.speed_slider = ctk.CTkSlider(
+            speed_frame,
+            from_=1,
+            to=100,
+            number_of_steps=99,
+            fg_color="#202020",
+            progress_color="#00E5FF",
+            button_color="#FFFFFF",
+            button_hover_color="#F0F0F0",
+            width=360,
+            height=20,
+            button_length=20,
+            command=self.on_speed_change
+        )
+        self.speed_slider.set(75)
+        self.speed_slider.place(relx=0.5, rely=0.5, anchor="center")
+
+        speed_val_frame = ctk.CTkFrame(self.main_panel, fg_color="#202020", corner_radius=22, width=65, height=44)
+        speed_val_frame.place(x=945, y=speed_y_pos)
+        speed_val_frame.pack_propagate(False)
+
+        self.lbl_speed_val = ctk.CTkLabel(
+            speed_val_frame,
+            text="75%",
+            font=ctk.CTkFont(family="Consolas", size=14, weight="bold"),
+            text_color="#00E5FF"
+        )
+        self.lbl_speed_val.place(relx=0.5, rely=0.5, anchor="center")
+
         # --- TARJETA INFORMATIVA E INFERIOR (ESTADO) ---
-        self.info_card = ctk.CTkFrame(self.main_panel, fg_color="#202020", corner_radius=20, width=520, height=72)
-        self.info_card.place(relx=0.5, y=565, anchor="n")
+        self.info_card = ctk.CTkFrame(self.main_panel, fg_color="#202020", corner_radius=20, width=540, height=68)
+        self.info_card.place(relx=0.5, y=560, anchor="n")
         self.info_card.pack_propagate(False)
 
         info_line1 = ctk.CTkLabel(
@@ -197,7 +252,7 @@ class RobotArmController(ctk.CTk):
             font=ctk.CTkFont(size=11),
             text_color="#DDDDDD"
         )
-        info_line1.pack(pady=(8, 0))
+        info_line1.pack(pady=(6, 0))
 
         self.lbl_status = ctk.CTkLabel(
             self.info_card,
@@ -205,7 +260,7 @@ class RobotArmController(ctk.CTk):
             font=ctk.CTkFont(size=11, weight="bold"),
             text_color="#00E5FF"
         )
-        self.lbl_status.pack(pady=(2, 8))
+        self.lbl_status.pack(pady=(2, 6))
 
     # --- POPUP PUERTO COM ---
     def open_port_window(self):
@@ -247,6 +302,8 @@ class RobotArmController(ctk.CTk):
                     self.ser.rts = False
 
                 time.sleep(1.0)
+                self._send_speed_async(self.current_speed)
+
                 self.btn_puerto.configure(fg_color="#2b8a3e")
                 self.lbl_status.configure(text=f"Estado: Conectado en {selected} @ 115200 baudios", text_color="#2b8a3e")
                 port_win.destroy()
@@ -296,9 +353,29 @@ class RobotArmController(ctk.CTk):
 
         Thread(target=_worker, daemon=True).start()
 
+    def _send_speed_async(self, speed):
+        if not self.ser or not self.ser.is_open:
+            return
+
+        def _worker():
+            try:
+                with self.ser_lock:
+                    if self.ser and self.ser.is_open:
+                        cmd = f"S:{speed}\n"
+                        self.ser.write(cmd.encode("utf-8"))
+            except Exception:
+                pass
+
+        Thread(target=_worker, daemon=True).start()
+
+    def on_speed_change(self, value):
+        self.current_speed = int(value)
+        self.lbl_speed_val.configure(text=f"{self.current_speed}%")
+        self._send_speed_async(self.current_speed)
+
     def on_slider_change(self, servo_id, value):
         angle = int(value)
-        self.angle_labels[servo_id].configure(text=f"{angle:03d}")
+        self.angle_labels[servo_id].configure(text=f"{angle}°")
         self._send_cmd_async(servo_id, angle)
 
     def save_current_pose(self):
@@ -324,9 +401,11 @@ class RobotArmController(ctk.CTk):
                 self.lbl_status.configure(text=f"Paso {idx+1}/{len(self.recorded_sequence)}: {angles}", text_color="#00E5FF")
                 for s_id, angle in enumerate(angles):
                     self.sliders[s_id].set(angle)
-                    self.angle_labels[s_id].configure(text=f"{angle:03d}")
+                    self.angle_labels[s_id].configure(text=f"{angle}°")
                     self._send_cmd_async(s_id, angle)
-                time.sleep(0.8)
+                
+                pause_time = max(0.2, 1.6 - (self.current_speed * 0.013))
+                time.sleep(pause_time)
 
             self.is_playing = False
             self.lbl_status.configure(text="Reproducción completada.", text_color="#2b8a3e")

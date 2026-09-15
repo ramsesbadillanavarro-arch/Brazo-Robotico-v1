@@ -8,10 +8,12 @@ Sistema de control para brazo robotico de 4 grados de libertad (4 servomotores) 
 
 ```text
 Brazo Robotico v1/
+├── Codigo Esp32 y Interfaz/
+│   └── Interfaz de control.py # Interfaz grafica de usuario
 ├── firmware/
 │   └── esp32_c3_arm/
 │       └── esp32_c3_arm.ino    # Firmware Arduino C++
-├── gui.py                      # Interfaz grafica de usuario
+├── assets/                     # Imagenes de fondo y recursos
 ├── requirements.txt            # Dependencias de Python
 ├── .gitignore                  # Exclusion de temporales y pycache
 └── README.md                   # Documentación del proyecto
@@ -52,5 +54,5 @@ Brazo Robotico v1/
    ```
 2. Ejecutar la GUI:
    ```powershell
-   .\.venv\Scripts\python.exe gui.py
+   python "Codigo Esp32 y Interfaz/Interfaz de control.py"
    ```
