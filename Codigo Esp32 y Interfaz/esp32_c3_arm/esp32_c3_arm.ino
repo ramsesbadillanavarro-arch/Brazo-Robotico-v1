@@ -9,10 +9,10 @@
  * - Fuente de alimentación externa 5V (2A - 3A) para servos
  * 
  * Asignación de Pines:
- * - Servo 0 (Base):    GPIO 2
- * - Servo 1 (Hombro):  GPIO 3
- * - Servo 2 (Codo):    GPIO 4
- * - Servo 3 (Pinza):   GPIO 5
+ * - Servo 0 (Base):    GPIO 0
+ * - Servo 1 (Hombro):  GPIO 1
+ * - Servo 2 (Codo):    GPIO 2
+ * - Servo 3 (Pinza):   GPIO 3
  * - LED indicador:     GPIO 8
  * 
  * Protocolo de Comandos Serie (115200 baud):
@@ -23,7 +23,7 @@
 #include <ESP32Servo.h>
 
 const int NUM_SERVOS = 4;
-const int SERVO_PINS[NUM_SERVOS] = {2, 3, 4, 5};
+const int SERVO_PINS[NUM_SERVOS] = {0, 1, 2, 3};
 const int LED_PIN = 8;
 
 Servo servos[NUM_SERVOS];
